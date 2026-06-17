@@ -1,0 +1,8 @@
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+pydantic==2.7.1
+numpy==1.26.4
+python-dotenv==1.0.1
+# Optional - only needed for live LLM mode (demo mode works without them):
+# openai==1.30.0
+# anthropic==0.28.0

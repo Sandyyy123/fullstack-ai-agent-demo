@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Full-Stack AI Agent Demo</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  :root{--bg:#0a0a0f;--surface:#15151f;--accent:#6c5ce7;--muted:#9b9bb0;--text:#e8e8ef;--border:#262635;--green:#00b894}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif}
+  .app{max-width:760px;margin:0 auto;padding:28px 18px}
+  h1{font-size:22px;margin:0 0 4px} .sub{color:var(--muted);font-size:13px;margin-bottom:18px}
+  .badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--border);color:var(--accent);margin-left:6px}
+  .chat{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;min-height:280px;margin-bottom:12px}
+  .msg{margin-bottom:14px} .msg .who{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+  .msg.user .bubble{background:#1d1d2e} .msg.bot .bubble{background:#191929}
+  .bubble{padding:10px 12px;border-radius:8px;margin-top:4px;white-space:pre-wrap;line-height:1.5}
+  .meta{font-size:12px;color:var(--muted);margin-top:6px;border-top:1px dashed var(--border);padding-top:6px}
+  .meta code{color:var(--accent)}
+  .row{display:flex;gap:8px} input{flex:1;padding:11px 12px;border-radius:8px;border:1px solid var(--border);background:#10101a;color:var(--text);font-size:14px}
+  button{padding:11px 16px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer}
+  button:disabled{opacity:.5;cursor:default}
+  .hint{color:var(--muted);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+const API = location.origin.includes("file") ? "http://localhost:8000" : "";
+
+function App() {
+  const [mode, setMode] = useState("...");
+  const [docs, setDocs] = useState(0);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [messages, setMessages] = useState([
+    { who: "bot", text: "Ask about RAG, evals, the stack, agents - or 'calculate 12 * (3 + 4)'.", meta: null },
+  ]);
+  const endRef = useRef(null);
+
+  useEffect(() => {
+    fetch(`${API}/health`).then(r => r.json()).then(d => { setMode(d.llm_mode); setDocs(d.documents_indexed); }).catch(() => setMode("offline"));
+  }, []);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  async function send() {
+    const q = input.trim();
+    if (!q || busy) return;
+    setInput(""); setBusy(true);
+    setMessages(m => [...m, { who: "user", text: q, meta: null }]);
+    try {
+      const res = await fetch(`${API}/chat`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: q, use_agent: true, top_k: 3 }),
+      });
+      const data = await res.json();
+      const metaBits = [];
+      if (data.retrieved?.length) metaBits.push("retrieved: " + data.retrieved.map(r => `${r.doc_id}(${r.score})`).join(", "));
+      if (data.tool_calls?.length) metaBits.push("tools: " + data.tool_calls.map(t => t.tool).join(", "));
+      metaBits.push(`mode: ${data.mode} · ~${data.tokens_estimated} tok`);
+      setMessages(m => [...m, { who: "bot", text: data.answer, meta: metaBits.join("  ·  ") }]);
+    } catch (e) {
+      setMessages(m => [...m, { who: "bot", text: "Request failed - is the API running on :8000?", meta: null }]);
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="app">
+      <h1>Full-Stack AI Agent Demo <span className="badge">mode: {mode}</span> <span className="badge">{docs} docs</span></h1>
+      <div className="sub">React frontend → FastAPI backend → RAG retriever + tool-calling agent. Runs with no API key (demo mode) or live with OpenAI/Anthropic.</div>
+      <div className="chat">
+        {messages.map((m, i) => (
+          <div key={i} className={`msg ${m.who}`}>
+            <div className="who">{m.who}</div>
+            <div className="bubble">{m.text}</div>
+            {m.meta && <div className="meta"><code>{m.meta}</code></div>}
+          </div>
+        ))}
+        <div ref={endRef} />
+      </div>
+      <div className="row">
+        <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder="Ask something..." />
+        <button onClick={send} disabled={busy}>{busy ? "..." : "Send"}</button>
+      </div>
+      <div className="hint">The "meta" line under each answer shows the retrieved docs, the tools the agent called, and the token estimate - so the AI layer is observable, not a black box.</div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
